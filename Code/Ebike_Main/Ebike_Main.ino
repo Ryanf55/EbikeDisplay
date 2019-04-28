@@ -56,18 +56,22 @@ U8G2_PCD8544_84X48_1_4W_SW_SPI u8g2(U8G2_R2, /* clock (SCLK)=*/ 13, /* data (DN(
 
 
 
-void draw(byte pageNum,float d1) {
+void draw(byte pageNum,float d1) 
+{
  
   u8g2.firstPage();
-  do {
+  do 
+  {
 
     
-    if (pageNum == 1) { //draw voltage and current
+    if (pageNum == 1) 
+    { //draw voltage and current
       u8g2.setFont(u8g2_font_profont12_tf);
       u8g2.print(d1);
       u8g2.print("v");
     }
-    else {
+    else 
+    {
       u8g2.setFont(u8g2_font_profont12_tf);
       u8g2.drawStr(0,8,"Page Num");
       u8g2.drawStr(0,17,"Error");
@@ -107,21 +111,26 @@ float calcVoltage(float v)
 
 
 
-void setup() {
+void setup() 
+{
   
   u8g2.begin(); //Start Display
 }
 
-void loop() {
+void loop() 
+{
   /*
   // put your main code here, to run repeatedly:
   String readStr;
 
   //Read incoming serial data. Expects commands to be formatted as "!XXXXXXX;\n ", where XXX is any alphanumeric char
-  if (Serial.available() > 0){
+  if (Serial.available() > 0)
+  {
     readStr = Serial.readStringUntil('\n');
     parseSerialReadString(readStr);
-  } else {
+  } 
+  else 
+  {
     readStr = "";
   }
   */
@@ -150,10 +159,12 @@ void loop() {
 //Parses a serial input string to change settings or request settings. 
 void parseSerialReadString(String myS)
 {
-  if (myS.length() == 0) {
+  if (myS.length() == 0) 
+  {
   //do nothing
   }
-  else if(myS[myS.length()-1] != ';' | myS[0] != '!') {
+  else if(myS[myS.length()-1] != ';' | myS[0] != '!') 
+  {
       Serial.println("Error Reading Command. Start commands with ! and end commands with ;");
 
       Serial.print("Your Command:");
@@ -161,15 +172,18 @@ void parseSerialReadString(String myS)
       Serial.println();
    
   } 
-  else { //Parse
+  else 
+  { //Parse
     //Remove ! and ;
     myS.toLowerCase();
     myS = myS.substring(1,myS.length()-1);
    
 
     //Scan if first word is help, get, set, or dump
-    if (myS.startsWith("get")) { // *******                   Getters *************
-      if (myS.endsWith(" brightness")) {
+    if (myS.startsWith("get")) 
+    { // *******                   Getters *************
+      if (myS.endsWith(" brightness")) 
+      {
         Serial.println("Brightness = 9000");
       }
       else if(myS.endsWith("voltage_min"))

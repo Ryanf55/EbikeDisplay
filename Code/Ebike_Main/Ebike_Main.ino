@@ -15,24 +15,35 @@
  * 
  * */
 
-
+#define LARGE_FONT u8g2_font_profont17_tf
+#define MEDIUM_FONT u8g2_font_profont15_tf
+#define SMALL_FONT u8g2_font_profont12_tf
 
 
 //Voltage input: 12V via stepdown from power wire into RAW
 
 //Pins ****************************************************************************************
-#define THR_IN_PIN 0 //A0
-#define THR_OUT_PIN 5 //D5
+#define THR_IN_PIN 0 //A0,
+#define THR_OUT_PIN 6 //PWM pin, labeled 6
 #define BATT_PIN 1 //A1
-#define VOLT_ARDUINO 3.3 //arduino 5V or 3.3V
+
 
 //Throttle constants. Input constants should be less range than the sensor values, so they get coerced to the same range always, with some deadband. 
 //The output constants should be larger range than the cycle expects to achieve full range. 
 //Most important, do not raise thrOutMin too high, or the motor will always run. 
-#define thrInMin  40 //min throttle, no speed
-#define thrInMax  80 //max throttle, high speed
+#define thrInMin  51 //min throttle, no speed
+#define thrInMax  75 //max throttle, high speed
 #define thrOutMin 20 //min speed motor, motor turns on @ ~25 so leave it ~20
 #define thrOutMax 100 //max speed motor
+#define ALPHA 0.10 //alpha for expo filter, between 0 and 1. If alpha is 1, weights latest sample only, whereas low alpha smooths a lot
+
+//Voltages *********************
+#define VOLT_ARDUINO 3.3 //arduino 5V or 3.3V
+#define BAT_CELLS 14
+#define VPC_MAX 4.2 // volts per cell, max for li-ion
+#define VPC_MIN 3.6 // volts per cell, min for li-ion
+#define VOLT_MAX (VPC_MAX * BAT_CELLS)
+#define VOLT_MIN (VPC_MIN * BAT_CELLS)
 
 
 //Display *********************************************************************************
@@ -56,7 +67,14 @@ U8G2_PCD8544_84X48_1_4W_SW_SPI u8g2(U8G2_R2, /* clock (SCLK)=*/ 13, /* data (DN(
 
 
 
-void draw(byte pageNum,float d1) 
+void draw(
+  byte pageNum,
+  float main_voltage,
+  float thrHallPer,
+  float aout,
+  float thrFiltered,
+  float battPercent
+  ) 
 {
  
   u8g2.firstPage();
@@ -66,9 +84,42 @@ void draw(byte pageNum,float d1)
     
     if (pageNum == 1) 
     { //draw voltage and current
-      u8g2.setFont(u8g2_font_profont12_tf);
-      u8g2.print(d1);
-      u8g2.print("v");
+//      u8g2.setFont(LARGE_FONT);
+//      u8g2.setCursor(0,17);
+//      u8g2.print(main_voltage);
+//      u8g2.setFont(SMALL_FONT);
+//      u8g2.print("vb/");
+//      u8g2.print(VOLT_MAX);
+//
+//      u8g2.setFont(MEDIUM_FONT);
+//      u8g2.setCursor(0,25);
+//      u8g2.print(thrHallPer);
+//      u8g2.setFont(SMALL_FONT);
+//      u8g2.print("thrHall");
+//
+//      u8g2.setFont(SMALL_FONT);
+//      u8g2.setCursor(0,37);
+//      u8g2.print(aout);
+//      u8g2.setFont(SMALL_FONT);
+//      u8g2.print("vo");
+//
+//      u8g2.setFont(SMALL_FONT);
+//      u8g2.setCursor(0,49);
+//      u8g2.print(thrFiltered);
+//      u8g2.setFont(SMALL_FONT);
+//      u8g2.print("vfilter");
+
+        u8g2.setFont(LARGE_FONT);
+        u8g2.setCursor(0,17);
+        u8g2.print(battPercent);
+        u8g2.setFont(SMALL_FONT);
+        u8g2.print("%");
+
+        u8g2.setFont(MEDIUM_FONT);
+        u8g2.setCursor(0,30);
+        u8g2.print(main_voltage);
+        u8g2.setFont(SMALL_FONT);
+        u8g2.print("v");
     }
     else 
     {
@@ -92,7 +143,7 @@ int adjustThr(float rawVal)
 {
   //Map input to output (negative slope)
   float slope = (thrOutMin - thrOutMax) / (thrInMin - thrInMax);
-  float outVal =  slope*(rawVal - thrInMax) + thrOutMax;
+  float outVal =  slope*(rawVal - thrInMin) + thrOutMin;
   if (outVal < thrOutMin)  //no use sending out signals lower than minThrottle
     return thrOutMin;
   else if (outVal > thrOutMax) //overflow of expected max speed command will stop the motor. 
@@ -102,10 +153,27 @@ int adjustThr(float rawVal)
   return -1;
 }
 
+
+int expoThr(float new_sample, float ma_old){
+  if (new_sample < ma_old)
+  {
+    return new_sample;
+  } else 
+  {
+    return ALPHA * new_sample + (1-ALPHA) * ma_old;
+  }
+}
+  
+
 float calcVoltage(float v)
 {
   //multiplier = 21.2 (Calibated)
   return v*21.20*VOLT_ARDUINO/1023.0;
+}
+
+float calcPercentage(float batVolt)
+{
+  return 100 / (VOLT_MAX - VOLT_MIN) * (batVolt - VOLT_MIN);
 }
 
 
@@ -115,106 +183,28 @@ void setup()
 {
   
   u8g2.begin(); //Start Display
+  u8g2.setContrast(135);
 }
 
+float thr_old = thrOutMin;
 void loop() 
 {
-  /*
-  // put your main code here, to run repeatedly:
-  String readStr;
-
-  //Read incoming serial data. Expects commands to be formatted as "!XXXXXXX;\n ", where XXX is any alphanumeric char
-  if (Serial.available() > 0)
-  {
-    readStr = Serial.readStringUntil('\n');
-    parseSerialReadString(readStr);
-  } 
-  else 
-  {
-    readStr = "";
-  }
-  */
 
   //Calculate Sensor Values
   float thrHallPer= analogRead(THR_IN_PIN) * (100.0 / 1023.0);
+  // 43 low throttle, 78 high throttle
   float battVoltage = calcVoltage(analogRead(BATT_PIN)) ;
-  
-
   int scaledThrottlePer = adjustThr(thrHallPer);
+  thr_old = expoThr(scaledThrottlePer, thr_old);
   
-  analogWrite(THR_OUT_PIN,(prevThrOut*2.55));
-  prevThrOut = 0.75*prevThrOut + 0.25*scaledThrottlePer;
+ 
+  analogWrite(THR_OUT_PIN,((int)thr_old*2.55));
+//  prevThrOut = 0.75*prevThrOut + 0.25*scaledThrottlePer;
+//
+//  //Update Display
+//  //dispPage1(battVoltage,thrHallPer,prevThrOut);
 
-  //Update Display
-  //dispPage1(battVoltage,thrHallPer,prevThrOut);
-  draw(1,12.23);
-  
+//  
   delay(50);  
+  draw(1, battVoltage, (int)thrHallPer, scaledThrottlePer, (int)thr_old, calcPercentage(battVoltage));
 }
-
-
-/*
-
-
-//Parses a serial input string to change settings or request settings. 
-void parseSerialReadString(String myS)
-{
-  if (myS.length() == 0) 
-  {
-  //do nothing
-  }
-  else if(myS[myS.length()-1] != ';' | myS[0] != '!') 
-  {
-      Serial.println("Error Reading Command. Start commands with ! and end commands with ;");
-
-      Serial.print("Your Command:");
-      Serial.print(myS);
-      Serial.println();
-   
-  } 
-  else 
-  { //Parse
-    //Remove ! and ;
-    myS.toLowerCase();
-    myS = myS.substring(1,myS.length()-1);
-   
-
-    //Scan if first word is help, get, set, or dump
-    if (myS.startsWith("get")) 
-    { // *******                   Getters *************
-      if (myS.endsWith(" brightness")) 
-      {
-        Serial.println("Brightness = 9000");
-      }
-      else if(myS.endsWith("voltage_min"))
-      {
-        
-      }
-    }
-    else if (myS.startsWith("set")) //**********            Setters ********
-    {
-      Serial.println("Setting a param of FIXMESETPARAM");
-    }
-    else if (myS == "help")
-    {
-      //print help text
-    }
-    else if(myS == "dump")
-    {
-      dumpSettings();
-    }
-    else
-    {
-      Serial.println("Unrecognized Command");
-    }
-  }
-}
-
-//dumpSettings returns the configuration data out the serial port. 
-void dumpSettings()
-{
-  Serial.println("Dump:");
-  Serial.println("Fixme dumpSettings");
-}
-
-*/

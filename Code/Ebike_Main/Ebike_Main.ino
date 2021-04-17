@@ -168,7 +168,7 @@ int expoThr(float new_sample, float ma_old){
 float calcVoltage(float v)
 {
   //multiplier = 21.2 (Calibated)
-  return v*21.20*VOLT_ARDUINO/1023.0;
+  return v*22.85*VOLT_ARDUINO/1023.0;
 }
 
 float calcPercentage(float batVolt)
